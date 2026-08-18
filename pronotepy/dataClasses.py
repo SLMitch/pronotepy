@@ -1038,7 +1038,6 @@ class Information(Object):
         category (str): category of the information
         survey (bool): if the message is a survey
         anonymous_response (bool): if the survey response is anonymous
-        attachments (List[Attachment])
         template (bool): if it is a template message
         shared_template (bool): if it is a shared template message
     """
@@ -1051,7 +1050,8 @@ class Information(Object):
         self.id: str = self._resolver(str, "N")
         self.title: Optional[str] = self._resolver(str, "L", strict=False)
         self.author: str = self._resolver(str, "auteur")
-        self._raw_content: list = self._resolver(list, "listeQuestions", "V")
+        self._raw_content: Optional[list] = None
+        self._content: Optional[str] = None
         self.read: bool = self._resolver(bool, "lue")
         self.creation_date: datetime.datetime = self._resolver(
             Util.datetime_parse, "dateCreation", "V"
@@ -1062,7 +1062,7 @@ class Information(Object):
         self.end_date: Optional[datetime.datetime] = self._resolver(
             Util.datetime_parse, "dateFin", "V", strict=False
         )
-        self.category: str = self._resolver(str, "categorie", "V", "L")
+        self.category: str = self._resolver(str, "nature", "V", "L")
         self.survey: bool = self._resolver(bool, "estSondage")
         self.template: bool = self._resolver(bool, "estModele", default=False)
         self.shared_template: bool = self._resolver(
@@ -1070,23 +1070,63 @@ class Information(Object):
         )
         self.anonymous_response: bool = self._resolver(bool, "reponseAnonyme")
 
-        def make_attachments(questions: dict) -> List[Attachment]:
-            attachments = []
-            for question in questions:
-                for j in question["listePiecesJointes"]["V"]:
-                    attachments.append(Attachment(client, j))
-            return attachments
-
-        self.attachments: List[Attachment] = self._resolver(
-            make_attachments, "listeQuestions", "V"
-        )
+        self._attachments: Optional[List[Attachment]] = None
 
         del self._resolver
 
-    @property
     def content(self) -> str:
         """Content of the information"""
-        return Util.html_parse(self._raw_content[0]["texte"]["V"])
+        self._fetch_content()
+
+        if self._raw_content is None:
+            return ""
+
+        if self._content is None:
+            self._content = Util.html_parse(self._raw_content[0]["texte"]["V"])
+
+        return self._content
+
+    def attachments(self) -> List[Attachment]:
+        """Documents and images attached to the information"""
+
+        def make_attachments(questions: list) -> List[Attachment]:
+            attachments = []
+            for question in questions:
+                for j in question["listePiecesJointes"]["V"]:
+                    attachments.append(Attachment(self._client, j))
+            return attachments
+
+        self._fetch_content()
+
+        if self._attachments is None:
+            self._attachments = make_attachments(self._raw_content or [])
+
+        return self._attachments
+
+    def _fetch_content(self) -> None:
+        if self._raw_content is not None:
+            return
+
+        resp = self._client.post(
+            "PageActualites",
+            8,
+            {
+                "actualite": {
+                    "N": self.id,
+                    "genrePublic": 4,
+                    "public": {
+                        "N": self._client.info.id,
+                        "G": 4,
+                    },
+                },
+                "genreRequeteActualite": 1,
+                "modeAffActu": 0,
+            },
+        )
+
+        self._raw_content = resp["dataSec"]["data"]["detailsActualite"][
+            "listeQuestions"
+        ]["V"]
 
     def mark_as_read(self, status: bool) -> None:
         """Mark this information as read"""

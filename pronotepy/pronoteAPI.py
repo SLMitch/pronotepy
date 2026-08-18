@@ -34,17 +34,23 @@ error_messages = {
 }
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:73.0) Gecko/20100101 Firefox/73.0  PRONOTE Mobile APP",
+    "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:73.0) Gecko/20100101 Firefox/73.0",
+}
+
+HEADERS_MOBILE = {
+    "User-Agent": "iPhone",
 }
 
 
 class _Communication(object):
-    def __init__(self, site: str, cookies: Optional["RequestsCookieJar"]) -> None:
+    def __init__(
+        self, site: str, cookies: Optional["RequestsCookieJar"], mobile: bool
+    ) -> None:
         """Handles all communication with the PRONOTE servers"""
         self.root_site, self.html_page = self.get_root_address(site)
 
         self.session = requests.Session()
-        self.session.headers.update(HEADERS)
+        self.session.headers.update(HEADERS_MOBILE if mobile else HEADERS)
 
         self.encryption = _Encryption()
         self.attributes: dict = {}
@@ -71,7 +77,7 @@ class _Communication(object):
                     f"{self.root_site}/{self.html_page}",
                     cookies=self.cookies,
                 )
-                self.attributes = self._parse_html(get_response.content)
+                self.attributes = self._parse_html(get_response.text)
             except ValueError:
                 log.warning(
                     "[_Communication.initialise] Failed to parse html, retrying..."
@@ -239,7 +245,7 @@ class _Communication(object):
         key = MD5.new(_enBytes(work.decode()))
         self.encryption.aes_key = key.digest()
 
-    def _parse_html(self, html: bytes) -> dict:
+    def _parse_html(self, html: str) -> dict:
         """Parses the html for the RSA keys
 
         Returns:
@@ -247,24 +253,19 @@ class _Communication(object):
         """
         parsed = BeautifulSoup(html, "html.parser")
 
-        onload = parsed.find(id="id_body")
-        if onload:
-            match = re.search(r"Start ?\({(?P<param>[^}]*)}\)", onload["onload"])  # type: ignore
-            if not match:
-                raise PronoteAPIError(
-                    "Page html is different than expected. Be sure that pronote_url is the direct url to your pronote page."
-                )
-            onload_c = match.group("param")
-        elif b"IP" in html:
+        if "IP" in html:
             raise PronoteAPIError("Your IP address is suspended.")
-        else:
+
+        match = re.search(r"Start ?\({(?P<param>[^}]*)}\)", html)  # type: ignore
+        if not match:
             raise PronoteAPIError(
                 "Page html is different than expected. Be sure that pronote_url is the direct url to your pronote page."
             )
+        onload_c = match.group("param")
         attributes = {}
         for attr in onload_c.split(","):  # type: ignore
             key, value = attr.split(":")
-            attributes[key] = value.replace("'", "")
+            attributes[key.strip().strip("'\"")] = value.strip().strip("'\"")
 
         if "h" not in attributes:
             raise ValueError("internal exception to retry -> cannot prase html")

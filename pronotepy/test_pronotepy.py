@@ -151,6 +151,10 @@ class TestInformation(unittest.TestCase):
         for info in information:
             self.assertFalse(info.read)
 
+    def test_content(self) -> None:
+        information = client.information_and_surveys()[0]
+        self.assertTrue(len(information.content()) > 0)
+
     def test_time_delta(self) -> None:
         start = datetime.datetime(
             year=client.start_day.year,

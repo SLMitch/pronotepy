@@ -111,7 +111,7 @@ class ClientBase:
         self.username = username
         self.password = password
         self.pronote_url = pronote_url
-        self.communication = _Communication(pronote_url, cookies)
+        self.communication = _Communication(pronote_url, cookies, mode != "normal")
 
         self.account_pin = account_pin
         self.client_identifier = client_identifier
@@ -502,7 +502,9 @@ class ClientBase:
         else:
             cookies = None
 
-        self.communication = _Communication(self.pronote_url, cookies)
+        self.communication = _Communication(
+            self.pronote_url, cookies, self.login_mode != "normal"
+        )
         self.attributes, self.func_options = self.communication.initialise(
             self.client_identifier
         )
