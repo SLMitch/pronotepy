@@ -332,20 +332,19 @@ class ClientBase:
             e.aes_set_key((username + motdepasse).encode())
 
         # challenge
+        challenge_crypto_error: Optional[CryptoError] = None
         try:
             dec = e.aes_decrypt(bytes.fromhex(challenge))
             dec_no_alea = _enleverAlea(dec.decode())
             ch = e.aes_encrypt(dec_no_alea.encode()).hex()
         except CryptoError as ex:
-            if self.login_mode == "qr_code":
-                ex.args += (
-                    "exception happened during login -> probably the qr code has expired (qr code is valid during 10 minutes)",
-                )
-            else:
-                ex.args += (
-                    "exception happened during login -> probably bad username/password",
-                )
-            raise
+            # some Pronote instances (since ~2026.2.5) no longer alea-wrap the
+            # login challenge and expect it to be re-encrypted directly instead
+            # of decrypted/stripped/re-encrypted. Keep the original error around:
+            # if this fallback also fails to log in, it's the more useful one to
+            # surface (a genuinely bad username/password fails the same way).
+            challenge_crypto_error = ex
+            ch = e.aes_encrypt(challenge.encode()).hex()
 
         # send
         auth_json = {
@@ -400,6 +399,16 @@ class ClientBase:
             return True
         else:
             log.info("login failed")
+            if challenge_crypto_error is not None:
+                if self.login_mode == "qr_code":
+                    challenge_crypto_error.args += (
+                        "exception happened during login -> probably the qr code has expired (qr code is valid during 10 minutes)",
+                    )
+                else:
+                    challenge_crypto_error.args += (
+                        "exception happened during login -> probably bad username/password",
+                    )
+                raise challenge_crypto_error
             return False
 
     def _do_2fa(
